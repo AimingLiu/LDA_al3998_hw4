@@ -1,0 +1,371 @@
+---
+title: "LDA_al3998_hw4"
+author: "AimingLiu"
+date: "11/9/2020"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, comment = "")
+library(tidyverse)
+library(data.table)
+library(geepack)
+library(gee)
+library(ipw)
+library(doBy)
+library(mice)
+library(purrr)
+library(mitml)
+library(CRTgeeDR)
+library(broom.mixed)
+```
+
+## In a randomized, double-blind, parallel-group, multicenter study comparing two oral treatments (denoted A and B) for toe-nail infection (De Backer etal., 1998; also see Lesaffre and Spiessons, 2001), patients were evaluated for the degree of onycholysis (the degree of separation of the nail plate from the nail-bed) at baseline (week 0) and at weeks 4, 8, 12, 24, 36, and 48 thereafter. The onycholysis outcome variable is binary (none or mild versus moderate or severe). The binary outcome was evaluated on 294 patients comprising a total of 1908 measurements. The main objective of the analyses is to compare the effects of oral treatments A and B on changes in the probability of the binary onycholysis outcome over the duration of the study. The raw data are stored in an external file: toenail.dat Each row of the data set contains the following five variables: ID,Y,Treatment,Month,Visit. The binary onycholysis outcome variable Y is coded 0 = none or mild, 1 = moderate or severe. The categorical variable Treatment is coded 1=oral treatment A, 0=oral treatment B. The variable Month denotes the exact timing of measurements in months. The variable Visit denotes the visit number (visit numbers 1-7 correspond to scheduled visits at 0, 4, 8, 12, 24, 36, and 48 weeks).
+
+# Question 1
+
+## 1. Consider a first order transition model for the log odds of moderate or severe onycholysis. Set up a suitable model assuming linear trends. Use month as the time variable.
+
+```{r}
+## Question 1
+# load original data
+toenail1 <- fread("toenail.dat") %>% 
+  mutate(Treatment = as.factor(Treatment))
+```
+
+```{r}
+# add response at lag 1 
+toenail2 = toenail1 %>% 
+  group_by(Subject_ID) %>% 
+  mutate(Response_1 = lag(Response,1))
+```
+
+
+```{r}
+## transition probabilities 
+tab1 <- table(toenail2$Response,toenail2$Response_1)
+tab1 %>% 
+  knitr::kable()
+```
+
+```{r}
+round(prop.table(tab1,margin = 1),2) %>% 
+knitr::kable()
+```
+
+```{r}
+## association between treatment and the response
+tab2 <- table(toenail2$Treatment,toenail2$Response)
+round(prop.table(tab2,margin = 1),2)
+```
+
+```{r}
+# association between treatment and response stratified by previous response i.e. response at lag 1 
+temp <- split(toenail2,toenail2$Response_1)
+tab3 <- lapply(temp, function(z){table(z$Response,z$Treatment)})
+lapply(tab3, function(z){round(prop.table(z,margin = 1),2)})
+```
+I fit the model like this:
+
+$$
+\begin{split}
+g[E(y_{ij}|H_{ij})]
+&= logit[E(Y_{ij}|Y_{ij-1}=y_{ij-1})] =  X'_{ij}*\beta + \alpha_{1}*y_{ij-1} + \alpha_{2}*y_{ij-1}*onycholysis \\
+\end{split}
+$$
+
+
+```{r}
+# Fit the model
+model_lag_1 <- gee(Response~ Treatment*(Month+Response_1), corstr = "independence",
+                   family = binomial("logit"), id = Subject_ID, data = toenail2)
+toenail_sum = round(summary(model_lag_1)$coeff,2)
+toenail_sum %>% 
+  knitr::kable()
+```
+
+From the value we get from the model with interaction,we can see that the p-value of term  `Treatment:Response` and `Treatment:Month` 
+is greater than 0.05,so we drop the interaction terms and fit the model again.
+
+
+$$
+\begin{split}
+g[E(y_{ij}|H_{ij})]
+&= logit[E(Y_{ij}|Y_{ij-1}=y_{ij-1})] = X'_{ij}*\beta + \alpha_{1}*y_{ij-1} \\
+\end{split}
+$$
+
+```{r}
+model_lag_1b <- gee(Response~ Treatment + Month + Response_1, corstr = "independence",
+                    family = binomial("logit"), id = Subject_ID, data = toenail2)
+toenail_sum_final1 = round(summary(model_lag_1b)$coeff,2)
+toenail_sum_final1%>% 
+   knitr::kable()
+```
+
+So the final model is 
+$$
+\begin{split}
+g[E(y_{ij}|H_{ij})]
+&= \beta_{0}+ \beta_{1}Treatment_{i} + \beta_{2}Month_{ij} + \alpha_{1}Response_{ij-1} \\
+\end{split}
+$$
+
+## 2. Repeat the model using a second order transition model. Is there a justification for a second order transition model?
+
+I fit the model like this:
+
+$$
+\begin{split}
+g[E(y_{ij}|H_{ij})]
+&= logit[E(Y_{ij}|Y_{ij-1}=y_{ij-1})] = X'_{ij}*\beta + \alpha_{1}*y_{ij-1} + \alpha_{2}*y_{ij-1}*onycholysis + \alpha_{3}*y_{ij-2}*onycholysis\\
+\end{split}
+$$
+
+```{r}
+# add response at lag 2
+toenail3 = toenail2 %>% 
+  group_by(Subject_ID) %>% 
+  mutate(Response_2 = lag(Response,2))
+```
+
+```{r}
+## transition probabilities 
+tab4 <- table(toenail3$Response,toenail3$Response_2)
+tab4 %>% 
+  knitr::kable()
+```
+
+```{r}
+round(prop.table(tab4,margin = 1),2) %>% 
+knitr::kable()
+```
+
+```{r}
+# association between treatment and response stratified by previous response i.e. response at lag 1 
+temp1 <- split(toenail3,toenail3$Response_2)
+tab5 <- lapply(temp, function(z){table(z$Response,z$Treatment)})
+lapply(tab5, function(z){round(prop.table(z,margin = 1),2)})
+```
+
+
+```{r}
+# Fit the second order model
+model_lag_2 <- gee(Response ~ Treatment *(Month+Response_1+Response_2), 
+                   corstr = "independence",family = binomial("logit"), id = Subject_ID, data = toenail3)
+toenail_sum_1 = round(summary(model_lag_2)$coeff,2)
+toenail_sum_1%>% 
+  knitr::kable()
+```
+
+From the result above, we can get the p-values from the z-value,we can see that the p-value of the interaction term between `Treatment`
+and `Month` is greater than 0.05, so that we drop this interaction term.And I refit the model as below.
+
+```{r}
+model_lag_2b <- gee(Response ~ Month+Treatment*(Response_1+Response_2), corstr = "independence",
+                    family = binomial("logit"), id = Subject_ID, data = toenail3)
+toenail_sum_2 = round(summary(model_lag_2b)$coeff,2)
+toenail_sum_2 %>% 
+  knitr::kable()
+```
+All the term is significant.
+So the model is :
+$$
+\begin{split}
+g[E(y_{ij}|H_{ij})]=\beta_{0}+ \beta_{1}Treatment_{i} + \beta_{2}Month_{ij} + \alpha_{1}*Response_{ij-1} +\alpha_{2}*Response_{ij-2}\\ +\alpha_{3}*Treatment_{i}*Response_{ij-1} + \alpha_{4}*Treatment_{i}*Response_{ij-2} \\
+\end{split}
+$$
+
+## 3.Provide Interpretations for the parameters in your model.
+
+## For model in Question 1:
+$\beta_{0}$: The log odds of onycholysis outcome  at month 0 is `-3.01` for those who receive the oral treatment B and did not have moderate or severe onycholysis outcome at previous visit.
+
+$\beta_{1}$:The log odds ratio of the onycholysis outcome comparing those receive oral treatment A with oral treatment B who had the idential status for onycholysis outcome in the previous visit with month fixed is `-0.31`.
+
+$\beta_{2}$: The log odds ratio of the onycholysis outcome with one unit increase in month for those who had the same treatment and the idential status for onycholysis outcome in the previous visit is `-0.12`.
+
+$\alpha_{1}$ : The log odds ratio of the onycholysis outcome comparing those who had moderate or severe onycholysis with those who had none or mild onycholysis in their previous visit who currently have identical treatment with month fixed is 4.49.
+
+## For model in Question 2:
+$\beta_{0}$: The log odds of onycholysis outcome  at month 0 is `-2.9` for those who receive the oral treatment B and have none or mild onycholysis outcome at previous visit and previous two visits.
+
+$\beta_{1}$:The log odds ratio of the onycholysis outcome comparing those receive oral treatment A with oral treatment B who had none or mild status for onycholysis outcome in the previous visit and previous 2 visits with month fixed is `-0.09`.
+
+$\beta_{2}$: The log odds ratio of the onycholysis outcome with one unit increase in month for those who had identical treatment and idential status for onycholysis outcome in the previous visit and previous two visits is `-0.84`.
+
+$\alpha_{1}$: The log odds ratio of the onycholysis outcome comparing those who had moderate or severe onycholysis with those who had none or mild onycholysis in treatment A in their previous visit and who have identical treatment and idential status for onycholysis outcome in the previous two visits with month fixed is `3.27`.
+
+$\alpha_{2}$: The log odds ratio of the onycholysis outcome comparing those who had moderate or severe onycholysis with those who had none or mild onycholysis in treatment A in their previous two visitw and who  have identical treatment and idential status for onycholysis outcome in the previous visit with month fixed is `0.74`.
+
+$\alpha_{3}$:The difference in log odds ratio of the onycholysis outcome comparing oral treatment A with oral treatment B between a patient who had none or mild response with a patient who had moderate or severe reponse in the previous visit and who have identical treatment and idential status for onycholysis outcome in the previous two visit with month fixed is `2.34`.
+
+$\alpha_{4}$:The difference in log odds ratio of the onycholysis outcome comparing oral treatment A with oral treatment B between a patient who had none or mild response with a patient who had moderate or severe reponse in the previous two visit and who have identical treatment and idential status for onycholysis outcome in the previous visits with month fixed is `-1.68`.
+
+## 4. How are the interpretations different from the models in HW2 and HW3.
+
+The transition model that is built in this homework focuses more on the effect of the response history of subjects but the random effects model with a random intercept that was built in HW2 and GEE model that was built in HW3 didn’t consider the impact of response history.
+
+# Question 2
+## 1. Perform a complete case analysis considering a GEE model for the log odds of moderate or severe onycholysis. Set up a suitable model assuming linear trends. Use visit as the time variable.
+
+```{r,results='hide'}
+library(tidyr) 
+library(data.table)
+toenail <- fread("toenail.txt")
+colnames(toenail) <- c("id","response","treatment","month","visit") 
+toenail4 <- tidyr::complete(toenail, id, visit) %>%
+tidyr::fill(treatment) 
+toenail4 <- as.data.table(toenail4)
+toenail4 %>% 
+  mutate(response = as.factor(response),
+         treatment = as.factor(treatment))
+```
+
+
+```{r}
+# center visit
+toenail$visit <- toenail$visit - min(toenail$visit) 
+table(toenail$response,useNA = "always")
+```
+
+```{r}
+table(toenail$visit,toenail$response,useNA = "always")
+```
+
+
+```{r}
+# complete case analysis 
+count <- toenail[,j = list(n=sum(!is.na(response))), by = "id"]
+table(count$n)
+count <- count[n==7]
+toenail5<- toenail4[id %in% count$id]
+table(toenail5$response,useNA = "always")
+```
+
+
+```{r}
+# complete case model 
+gee1 <- geeglm(response~ treatment* visit , id = id, data = toenail5, family = binomial(link = "logit"), corstr = "unstructured")
+gee_sum_1 = round(summary(gee1)$coeff,2)
+gee_sum_1%>% 
+  knitr::kable()
+```
+
+
+
+## 2. Perform an available case analysis considering a GEE model for the log odds of moderate or severe onycholysis. Set up a suitable model assuming linear trends. Use visit as the time variable.
+```{r}
+toenail6 <- toenail4
+table(toenail6$response,useNA = "always")
+```
+
+```{r}
+table(toenail6$visit,toenail6$response,useNA = "always")
+```
+
+
+```{r}
+# available case analysis
+gee2 <- geeglm(response ~ treatment * visit, id = id, data = toenail6, family = binomial(link = "logit"), corstr = "unstructured")
+gee_sum_2 =summary(gee2)
+gee_sum_2$coefficients %>% 
+ knitr::kable()
+```
+
+## 3. Perform an LOCF analysis considering a GEE model for the log odds of moderate or severe onycholysis. Set up a suitable model assuming linear trends. Use visit as the time variable.
+
+```{r}
+# LOCF
+toenail7 <- lapply(unique(toenail4$id), function(z){tidyr::fill(toenail4[id == z], response)})
+toenail7 <- rbindlist(toenail7)
+table(toenail7$visit, toenail7$response,useNA = "always")
+```
+
+
+```{r}
+#LOCF
+gee3 <- geeglm(response~ treatment *  visit , id = id, data = toenail7, family = binomial(link = "logit"), corstr = "unstructured")
+gee_sum_3 = round(summary(gee3)$coeff,2)
+gee_sum_3%>% 
+  knitr::kable()
+```
+
+The p-value of the interaction term between visit and treatment is 0.11, which is larger than 0.05. We failed to reject the null hypothesis and conclude that this term should be dropped in the model.
+The final mixed effects model using multiple imputation should be as the following one.
+
+```{r}
+gee3b <- geeglm(response~ treatment +  visit , id = id, data = toenail7, family = binomial(link = "logit"), corstr = "unstructured")
+gee_sum_3b = round(summary(gee3b)$coeff,2)
+gee_sum_3b%>% 
+  knitr::kable()
+```
+
+
+## 4. Perform an multiple imputation based analysis considering a GEE model for the log odds of moderate or severe onycholysis. Set up a suitable model assuming linear trends. Use visit as the time variable.
+
+```{r}
+toenail8 <- toenail4
+pred <- make.predictorMatrix(toenail8)
+pred
+```
+
+
+```{r}
+pred["response","id"] <- -2
+pred
+```
+
+
+```{r}
+pred <- pred["response",,drop = FALSE]
+pred
+```
+
+
+```{r}
+toenail8$id <- as.integer(toenail8$id)
+imp <- mice(toenail8, method = "2l.bin", pred = pred, seed = 12102, maxit = 1, m = 5, print = FALSE, blocks = list(c("response")))
+table(mice::complete(imp)$response, useNA = "always")
+```
+
+```{r}
+### GEE
+implist <- mids2mitml.list(imp)
+gee4 <- with(implist, geeglm(response ~ treatment * visit, id=id,family = binomial(link = "logit"), corstr = "unstructured"))
+gee4_sum = testEstimates(gee4) 
+gee4_sum$estimates %>% 
+  knitr::kable()
+```
+
+
+## 5. Perform an multiple imputation based analysis considering a mixed effects model for the log odds of moderate or severe onycholysis. Set up a suitable model assuming linear trends. Use visit as the time variable.
+
+```{r}
+### Mixed Effects 
+lme1 <- mice::complete(imp, "all") %>%
+purrr::map(lme4::glmer,formula = response ~ treatment * visit + (1 | id),family = binomial) %>%
+    pool() %>%
+    summary()
+lme1 %>% 
+  knitr::kable()
+```
+
+The p-value of the interaction term between visit and treatment is 0.062, which is larger than 0.05. We failed to reject the null hypothesis and conclude that this term should be dropped in the model.
+The final mixed effects model using multiple imputation should be as the following one.
+
+```{r}
+lme1b <- mice::complete(imp, "all") %>%
+purrr::map(lme4::glmer,formula = response ~ treatment +  visit + (1 | id),family = binomial) %>%
+    pool() %>%
+    summary()
+lme1b %>% 
+  knitr::kable()
+```
+
+
+
+## Appendix: code
+```{r, ref.label=knitr::all_labels(),echo=TRUE,eval=FALSE}
+```
