@@ -191,9 +191,9 @@ $\alpha_{1}$ : The log odds ratio of the onycholysis outcome comparing those who
 ## For model in Question 2:
 $\beta_{0}$: The log odds of onycholysis outcome  at month 0 is `-2.9` for those who receive the oral treatment B and have none or mild onycholysis outcome at previous visit and previous two visits.
 
-$\beta_{1}$:The log odds ratio of the onycholysis outcome comparing those receive oral treatment A with oral treatment B who had none or mild status for onycholysis outcome in the previous visit and previous 2 visits with month fixed is `-0.09`.
+$\beta_{1}$:The log odds ratio of the onycholysis outcome comparing those receive oral treatment A with oral treatment B who had none or mild status for onycholysis outcome in the previous visit and previous 2 visits with month fixed is `-0.84`.
 
-$\beta_{2}$: The log odds ratio of the onycholysis outcome with one unit increase in month for those who had identical treatment and idential status for onycholysis outcome in the previous visit and previous two visits is `-0.84`.
+$\beta_{2}$: The log odds ratio of the onycholysis outcome with one unit increase in month for those who had identical treatment and idential status for onycholysis outcome in the previous visit and previous two visits is `-0.09`.
 
 $\alpha_{1}$: The log odds ratio of the onycholysis outcome comparing those who had moderate or severe onycholysis with those who had none or mild onycholysis in treatment A in their previous visit and who have identical treatment and idential status for onycholysis outcome in the previous two visits with month fixed is `3.27`.
 
